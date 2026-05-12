@@ -1,0 +1,14 @@
+# Python environment
+.venv/
+*.pyc
+*.pyo
+
+# Django local database
+db.sqlite3
+
+# Environment variables (secrets)
+.env
+ Choose the method you prefer.
+
+#### Method A: Using VS Code's Built-in GUI (Fastest)
+VS Code has a built-in
