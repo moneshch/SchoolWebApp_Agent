@@ -5,7 +5,8 @@
 
 # Django local database
 db.sqlite3
-
+chroma_db/
+chroma_langchain_db/
 # Environment variables (secrets)
 .env
  Choose the method you prefer.

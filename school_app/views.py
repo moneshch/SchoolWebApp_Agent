@@ -13,7 +13,7 @@ from .models import (
     AgentLog
 )
 
-from .ai.agents import agent
+from .ai.agents import get_agent
 from .ai.rag import ingest_pdf
 
 
@@ -67,6 +67,15 @@ def chatbot(request):
                     "session_id"
                 )
 
+                # Sanitize: treat "undefined" / "null" / "" as no session
+                if not session_id or str(session_id).strip() in ("undefined", "null", ""):
+                    session_id = None
+
+                prompt_mode = data.get(
+                    "prompt_mode",
+                    "normal"
+                )
+
                 uploaded_file = None
 
             # =================================================
@@ -83,6 +92,17 @@ def chatbot(request):
                 session_id = request.POST.get(
                     "session_id"
                 )
+
+                # Sanitize: treat "undefined" / "null" / "" as no session
+                if not session_id or str(session_id).strip() in ("undefined", "null", ""):
+                    session_id = None
+
+                prompt_mode = request.POST.get(
+                    "prompt_mode",
+                    "normal"
+                )
+                print("********************************")
+                print(prompt_mode)
 
                 uploaded_file = request.FILES.get(
                     "file"
@@ -233,7 +253,7 @@ def chatbot(request):
                     # AGENT INVOCATION
                     # =========================================
 
-                    response = agent.invoke({
+                    response = get_agent(prompt_mode).invoke({
 
                         "messages":
                             messages_for_agent
@@ -382,7 +402,7 @@ def chatbot(request):
 
     return render(
         request,
-        "chatbot.html"
+        "chatbot_V2.html"
     )
 
 

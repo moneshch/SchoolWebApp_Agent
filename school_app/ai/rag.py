@@ -31,17 +31,24 @@ vector_store = Chroma(
 # INGEST PDF
 # =========================================================
 
+# rag.py
+
+import os
+
 def ingest_pdf(pdf_path):
 
     loader = PyPDFLoader(pdf_path)
-
     docs = loader.load()
+
+    # Normalize source metadata to just the filename
+    filename = os.path.basename(pdf_path)
+    for doc in docs:
+        doc.metadata["source"] = filename   # ← ensures consistent, filterable key
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
-
     splits = splitter.split_documents(docs)
 
     vector_store.add_documents(splits)

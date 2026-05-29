@@ -150,21 +150,54 @@ def get_school_policy(query: str) -> str:
 # RAG TOOL
 # =========================================
 
-@tool(response_format="content_and_artifact")
-def retrieve_context(query: str):
-    """
-    Retrieve school policy information.
-    """
+# tools.py
 
+@tool(response_format="content_and_artifact")
+def retrieve_context(query: str, source_filename: str = ""):
+    """
+    Retrieve information from uploaded school documents/PDFs.
+    If the user mentions a specific document name, pass it as source_filename
+    (e.g. source_filename='HILLCREST_school_policy.pdf').
+    """
     vectorstore = load_vectorstore()
 
-    retriever = vectorstore.as_retriever(
-        search_kwargs={"k": 3}
-    )
+    search_kwargs = {"k": 5}
 
-    docs = retriever.invoke(query)
+    # =================================================
+    # CHROMA FILTER: use $eq for exact match or loop
+    # for partial filename match (Chroma has no $contains)
+    # =================================================
+
+    if source_filename:
+
+        # Try exact match first
+        docs = vectorstore.similarity_search(
+            query,
+            k=5,
+            filter={"source": {"$eq": source_filename}}
+        )
+
+        # If exact match returns nothing, try case-insensitive
+        # partial match by fetching more and filtering in Python
+        if not docs:
+            all_docs = vectorstore.similarity_search(query, k=20)
+            docs = [
+                doc for doc in all_docs
+                if source_filename.lower() in
+                   doc.metadata.get("source", "").lower()
+            ][:5]
+
+    else:
+        docs = vectorstore.similarity_search(query, k=5)
+
+    if not docs:
+        return (
+            f"No relevant content found"
+            f"{' in ' + source_filename if source_filename else ''}."
+        ), []
 
     serialized = "\n\n".join(
+        f"Source: {doc.metadata.get('source', 'Unknown')}\n"
         f"Content: {doc.page_content}"
         for doc in docs
     )
@@ -177,7 +210,7 @@ def retrieve_context(query: str):
 # =========================================
 
 @tool
-def create_student(
+def create_student_Old(
     first_name: str,
     last_name: str,
     grade_name: str
@@ -236,39 +269,132 @@ def create_student(
         f"Grade: {matched_grade.grade_name}"
     )
 
+import uuid
+from datetime import date
 
+@tool
+def create_student(
+    first_name: str,
+    last_name: str,
+    grade_name: str,
+    gender: str = "Not Specified",
+    parent_name: str = "Not Specified",
+    parent_phone: str = "Not Specified",
+    address: str = "Not Specified"
+) -> str:
+    """
+    Creates a new student record in the database.
+    Use this tool when a user explicitly asks to add, enroll, or create a new student.
+    
+    Args:
+        first_name (str): The student's first name.
+        last_name (str): The student's last name.
+        grade_name (str): The exact name of the grade (e.g., "Grade 10").
+        gender (str, optional): The student's gender. Leave empty if unknown.
+        parent_name (str, optional): The parent or guardian's full name. Leave empty if unknown.
+        parent_phone (str, optional): The parent's contact number. Leave empty if unknown.
+        address (str, optional): The student's home address. Leave empty if unknown.
+        
+    Returns:
+        str: A success message with the new student's details, or an error message if the grade is invalid.
+    """
+    
+    # 1. Safer Grade Matching via ORM
+    # First, try an exact case-insensitive match
+    clean_grade = grade_name.strip()
+    matched_grade = Grade.objects.filter(grade_name__iexact=clean_grade).first()
+
+    # Fallback: Try a slightly looser 'contains' match if exact fails
+    if not matched_grade:
+        matched_grade = Grade.objects.filter(grade_name__icontains=clean_grade).first()
+
+    # 2. Handle missing grades elegantly
+    if not matched_grade:
+        # Fetching all grades could be heavy, limit to a list of names
+        available = ", ".join(list(Grade.objects.values_list('grade_name', flat=True)[:10]))
+        return (
+            f"Error: Grade '{grade_name}' not found. "
+            f"Please ask the user to clarify. Some available grades include: {available}..."
+        )
+
+    # 3. Generate a safe Admission Number (UUID fragment to avoid race conditions)
+    # Note: If your model handles this automatically via an AutoField or default callable, 
+    # you should completely remove 'admission_number' from the .create() method below.
+    #safe_adm_number = f"ADM-{str(uuid.uuid4())[:8].upper()}"
+
+    # 4. Create the student with dynamic data
+    try:
+        student = Student.objects.create(
+            first_name=first_name.strip(),
+            last_name=last_name.strip(),
+            grade=matched_grade,
+            admission_number=f"ADM-{Student.objects.count()+1}",
+            #admission_number=safe_adm_number, 
+            gender=gender,
+            address=address,
+            parent_name=parent_name,
+            parent_phone=parent_phone,
+            admission_date=date.today().isoformat(), # Automatically use today's date
+            # date_of_birth should ideally be an argument too, leaving as a placeholder or omit if nullable
+            date_of_birth="2015-01-01" 
+        )
+
+        return (
+            f"Success! Student created.\n"
+            f"Name: {student.first_name} {student.last_name}\n"
+            f"Grade: {matched_grade.grade_name}\n"
+            f"Admission No: {student.admission_number}"
+        )
+        
+    except Exception as e:
+        return f"An error occurred while trying to save the student to the database: {str(e)}"
 # =========================================
 # SEARCH STUDENT TOOL
 # =========================================
 
 @tool
-def search_students(query: str):
+def search_students(first_name: str = "", last_name: str = "") -> str:
     """
-    Search students by name.
+    Searches the student database to retrieve a student's grade and admission number.
+    Use this tool whenever you need to look up a student's details by their name.
+    
+    Args:
+        first_name (str, optional): The student's first name (e.g., "John"). Leave empty if unknown.
+        last_name (str, optional): The student's last name (e.g., "Smith"). Leave empty if unknown.
+        
+    Returns:
+        str: A formatted string of up to 5 matching students, or a "No students found" message.
     """
-
-    students = Student.objects.filter(
-        first_name__icontains=query
-    )[:5]
+    
+    # Start with all students
+    query = Student.objects.all()
+    
+    # Dynamically filter based on what the LLM provides
+    if first_name:
+        query = query.filter(first_name__icontains=first_name.strip())
+    if last_name:
+        query = query.filter(last_name__icontains=last_name.strip())
+        
+    students = query[:5]
 
     if not students:
-        return "No students found"
+        return "No students found matching that name."
 
     result = []
-
     for student in students:
-
+        # Use textwrap.dedent or strip to keep formatting clean for the LLM context window
         result.append(
-            f"""
-            Name: {student.first_name} {student.last_name}
-            Grade: {student.grade}
-            Admission No: {student.admission_number}
-            """
+            f"Name: {student.first_name} {student.last_name}\n"
+            f"Grade: {student.grade}\n"
+            f"Admission No: {student.admission_number}\n"
+            f"Phone: {student.phone}\n"
+            f"Email: {student.email}\n"
+            f"date Of Birth: {student.date_of_birth}\n"
+
+            f"---"
         )
 
     return "\n".join(result)
-
-
 # =========================================
 # HOLIDAY TOOL
 # =========================================
