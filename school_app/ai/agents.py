@@ -106,9 +106,9 @@ TOOLS = [
     retrieve_context,
     create_student,
     search_students,
-    get_holidays,
-    get_school_policy
+    get_holidays,get_school_policy
 ]
+
 
 
 # =========================================================

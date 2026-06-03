@@ -41,7 +41,6 @@ def chatbot(request):
     # =====================================================
 
     if request.method == "POST":
-
         response_text = ""
 
         uploaded_filename = ""
