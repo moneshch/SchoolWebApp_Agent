@@ -100,7 +100,7 @@ def chatbot(request):
                     "prompt_mode",
                     "normal"
                 )
-                print("********************************")
+                print("**********************************")
                 print(prompt_mode)
 
                 uploaded_file = request.FILES.get(
@@ -123,7 +123,7 @@ def chatbot(request):
                 except ChatSession.DoesNotExist:
 
                     return JsonResponse({
-                        "error": "Invalid session"
+                        "error": "Invalid session there"
                     }, status=404)
 
             else:
